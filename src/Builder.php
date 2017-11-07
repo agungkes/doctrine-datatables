@@ -326,7 +326,7 @@ class Builder
     }
 
     /**
-     * @param array $requestParams
+     * @param string $delimiter
      * @return static
      */
     public function withSearchDelimiter($delimiter)
