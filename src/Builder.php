@@ -21,6 +21,7 @@ use Doctrine\ORM\Tools\Pagination\Paginator;
  */
 class Builder
 {
+
     /**
      * @var array
      */
@@ -57,6 +58,12 @@ class Builder
     protected $requestParams;
 
     /**
+     * @var string
+     */
+    protected $searchDelimiter = false;
+
+
+    /**
      * @return array
      */
     public function getData()
@@ -86,14 +93,8 @@ class Builder
             }
         }
         // Fetch
-        if ($query instanceof ORMQueryBuilder) {
-            if ($this->returnCollection)
-                return $query->getQuery()->getResult();
-            else
-                return $query->getQuery()->getScalarResult();
-        } else {
-            return $query->execute()->fetchAll();
-        }
+        return $query instanceof ORMQueryBuilder ?
+            $query->getQuery()->getScalarResult() : $query->execute()->fetchAll();
     }
 
     /**
@@ -107,28 +108,51 @@ class Builder
         // Search
         if (array_key_exists('search', $this->requestParams)) {
             if ($value = trim($this->requestParams['search']['value'])) {
-                $orX = $query->expr()->orX();
-                for ($i = 0; $i < $c; $i++) {
-                    $column = &$columns[$i];
-                    if ($column['searchable'] == 'true') {
-                        if (array_key_exists($column[$this->columnField], $this->columnAliases)) {
-                            $column[$this->columnField] = $this->columnAliases[$column[$this->columnField]];
+
+                if ($this->searchDelimiter !== false && strpos($value, $this->searchDelimiter) !== false) {
+                    $index = 0;
+                    $parts = explode($this->searchDelimiter, $value);
+                    $partsAndX = $query->expr()->andX();
+                    foreach ($parts as $part) {
+
+                        $orX = $query->expr()->orX();
+                        for ($i = 0; $i < $c; $i++) {
+                            $column = &$columns[$i];
+                            if ($column['searchable'] == 'true') {
+                                if (array_key_exists($column[$this->columnField], $this->columnAliases)) {
+                                    $column[$this->columnField] = $this->columnAliases[$column[$this->columnField]];
+                                }
+                                $orX->add($query->expr()->like($column[$this->columnField], ':search' . $index));
+                            }
                         }
-                        if ($this->caseInsensitive) {
-                            $searchColumn = "lower(" . $column[$this->columnField] . ")";
-                            $orX->add($query->expr()->like($searchColumn, 'lower(:search)'));
-                        } else {
+
+                        $partsAndX->add($orX);
+                        $query->setParameter('search' . $index, "%{$part}%");
+                        $index++;
+                    }
+                    if ($partsAndX->count() >= 1) {
+                        $query->andWhere($partsAndX);
+                    }
+                } else {
+                    $orX = $query->expr()->orX();
+                    for ($i = 0; $i < $c; $i++) {
+                        $column = &$columns[$i];
+                        if ($column['searchable'] == 'true') {
+                            if (array_key_exists($column[$this->columnField], $this->columnAliases)) {
+                                $column[$this->columnField] = $this->columnAliases[$column[$this->columnField]];
+                            }
                             $orX->add($query->expr()->like($column[$this->columnField], ':search'));
                         }
                     }
-                }
-                if ($orX->count() >= 1) {
-                    $query->andWhere($orX)
-                        ->setParameter('search', "%{$value}%");
+                    if ($orX->count() >= 1) {
+                        $query->andWhere($orX)
+                            ->setParameter('search', "%{$value}%");
+                    }
                 }
             }
         }
         // Filter
+
         for ($i = 0; $i < $c; $i++) {
             $column = &$columns[$i];
             $andX = $query->expr()->andX();
@@ -186,8 +210,17 @@ class Builder
     public function getRecordsFiltered()
     {
         $query = $this->getFilteredQuery();
-        $paginator = new Paginator($query, $fetchJoinCollection = true);
-        return $paginator->count();
+        if ($query instanceof ORMQueryBuilder) {
+            return $query->resetDQLPart('select')
+                ->select("COUNT({$this->indexColumn})")
+                ->getQuery()
+                ->getSingleScalarResult();
+        } else {
+            return $query->resetQueryPart('select')
+                ->select("COUNT({$this->indexColumn})")
+                ->execute()
+                ->fetchColumn(0);
+        }
     }
 
     /**
@@ -196,8 +229,17 @@ class Builder
     public function getRecordsTotal()
     {
         $query = clone $this->queryBuilder;
-        $paginator = new Paginator($query, $fetchJoinCollection = true);
-        return $paginator->count();
+        if ($query instanceof ORMQueryBuilder) {
+            return $query->resetDQLPart('select')
+                ->select("COUNT({$this->indexColumn})")
+                ->getQuery()
+                ->getSingleScalarResult();
+        } else {
+            return $query->resetQueryPart('select')
+                ->select("COUNT({$this->indexColumn})")
+                ->execute()
+                ->fetchColumn(0);
+        }
     }
 
     /**
@@ -280,6 +322,16 @@ class Builder
     public function withRequestParams($requestParams)
     {
         $this->requestParams = $requestParams;
+        return $this;
+    }
+
+    /**
+     * @param array $requestParams
+     * @return static
+     */
+    public function withSearchDelimiter($delimiter)
+    {
+        $this->searchDelimiter = $delimiter;
         return $this;
     }
 }
