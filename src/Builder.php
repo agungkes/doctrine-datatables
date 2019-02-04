@@ -160,8 +160,7 @@ class Builder
                 if (array_key_exists($column[$this->columnField], $this->columnAliases)) {
                     $column[$this->columnField] = $this->columnAliases[$column[$this->columnField]];
                 }
-                $operator = preg_match('~^\[(?<operator>[=!%<>]+)\](?<search>.*)$~', $value, $matches) ? $matches['operator'] : '=';
-                $value = !empty($matches['search']) ? $matches['search'] : $value;
+                $operator = preg_match('~^\[(?<operator>[|=!%<>]+)\].*$~', $value, $matches) ? $matches['operator'] : '=';
                 if ($this->caseInsensitive) {
                     $searchColumn = "lower(" . $column[$this->columnField] . ")";
                     $filter = "lower(:filter_{$i})";
@@ -192,6 +191,10 @@ class Builder
                     case '=': // Equals (default); usage: [=]search_term
                     default:
                         $andX->add($query->expr()->eq($searchColumn, $filter));
+                        break;
+                    case '|': // Equals for multiple values; usage: [|]search_term
+                        $value = explode('[|]', $value);
+                        $andX->add($query->expr()->in($searchColumn, $filter));
                         break;
                 }
                 $query->setParameter("filter_{$i}", $value);
